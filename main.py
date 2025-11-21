@@ -8,7 +8,7 @@ import os
 import shutil
 import uuid
 import jwt
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from datetime import datetime, timedelta
 
 app = FastAPI()
@@ -32,8 +32,12 @@ users_db = {
     "user": "user123"
 }
 
-# === ЗАДАНИЕ В: Cookie-сессии ===
 sessions: Dict[str, datetime] = {}
+
+login_history: Dict[str, List[Dict]] = {
+    "admin": [],
+    "user": []
+}
 
 def verify_session(session_token: str) -> bool:
     if session_token in sessions:
@@ -44,7 +48,6 @@ def verify_session(session_token: str) -> bool:
             del sessions[session_token]
     return False
 
-# === ЗАДАНИЕ Г: JWT настройки ===
 JWT_SECRET = "your-secret-key"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 30
@@ -80,7 +83,6 @@ async def get_current_user_jwt(authorization: str = None):
     payload = verify_jwt_token(token)
     return payload
 
-# === ЗАДАНИЕ А.3: Top 10 фильмов ===
 movies_top_data = [
     Movietop(name="The Shawshank Redemption", id=1, cost=25, director="Frank Darabont"),
     Movietop(name="The Godfather", id=2, cost=6, director="Francis Ford Coppola"),
@@ -131,7 +133,6 @@ def root():
     </html>
     """)
 
-# === ЗАДАНИЕ А.2: Страница учебы ===
 @app.get("/study", response_class=HTMLResponse)
 def study_info():
     return HTMLResponse(content="""
@@ -149,7 +150,6 @@ def study_info():
     </html>
     """)
 
-# === ЗАДАНИЕ А.3: Top 10 фильмов ===
 @app.get("/movietop/{movie_name:path}")
 def get_movie(movie_name: str):
     import urllib.parse
@@ -159,7 +159,6 @@ def get_movie(movie_name: str):
         return movies_dict[decoded_name]
     return {"error": "Movie not found in top 10", "searched_name": decoded_name}
 
-# === ЗАДАНИЕ Б: Форма добавления фильмов ===
 @app.get("/movies/add-form")
 def add_movie_form():
     return HTMLResponse(content="""
@@ -259,7 +258,6 @@ def get_movie_by_id(movie_id: int):
     </html>
     """)
 
-# === ЗАДАНИЕ В: Cookie-аутентификация ===
 @app.get("/login-cookie-form")
 def login_cookie_form():
     return HTMLResponse(content="""
@@ -284,6 +282,14 @@ async def login_cookie(response: Response, username: str = Form(...), password: 
         session_token = str(uuid.uuid4())
         sessions[session_token] = datetime.now() + timedelta(minutes=30)
         
+        login_data = {
+            "session_token": session_token,
+            "login_time": datetime.now().isoformat(),
+            "expires_at": sessions[session_token].isoformat(),
+            "user_agent": "Unknown"
+        }
+        login_history[username].append(login_data)
+        
         response.set_cookie(
             key="session_token",
             value=session_token,
@@ -298,6 +304,7 @@ async def login_cookie(response: Response, username: str = Form(...), password: 
                 <h1>Login Successful! (Cookie)</h1>
                 <p>Welcome, {username}!</p>
                 <p><strong>Your Session Token:</strong> {session_token}</p>
+                <p><strong>Total logins:</strong> {len(login_history[username])}</p>
                 <p><a href="/user-cookie?session_token={session_token}">Go to Profile</a></p>
                 <p><a href="/">← На главную</a></p>
             </body>
@@ -334,17 +341,28 @@ async def get_user_profile_cookie(
             content={"message": "Unauthorized", "reason": "Invalid session token"}
         )
     
+    username = None
+    for user, logins in login_history.items():
+        for login in logins:
+            if login["session_token"] == final_token:
+                username = user
+                break
+        if username:
+            break
+    
     return {
         "message": "Authorized",
         "profile": {
+            "username": username,
             "session_active": True,
             "session_expires": sessions[final_token].isoformat(),
-            "auth_type": "cookie" if session_token else "cookie_url_param"
+            "auth_type": "cookie" if session_token else "cookie_url_param",
+            "total_logins": len(login_history[username]) if username else 0,
+            "login_history": login_history[username] if username else []
         },
         "movies_count": len(movies_data)
     }
 
-# === ЗАДАНИЕ Г: JWT аутентификация ===
 @app.get("/login-jwt-form")
 def login_jwt_form():
     return HTMLResponse(content="""
